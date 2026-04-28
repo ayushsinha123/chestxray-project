@@ -1,0 +1,44 @@
+# Virtual environment
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+*.ipynb
+
+# Model weights (too large for GitHub)
+*.h5
+*.keras
+*.ckpt
+*.ckpt.index
+*.ckpt.data-00000-of-00001
+checkpoint
+outputs/weights/
+
+# Dataset images (42GB - never upload)
+data/images/
+data/*.zip
+data/*.tar.gz
+
+# Grad-CAM outputs (optional - comment out if you want to keep)
+gradcam_results/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# VS Code settings
+.vscode/
+
+# Kaggle API key (NEVER upload this)
+kaggle.json
+.kaggle/
+
+# Environment variables
+.env
