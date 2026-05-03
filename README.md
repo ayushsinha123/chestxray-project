@@ -105,7 +105,7 @@ chestxray-project/
 
 **1. Clone the repo**
 ```bash
-git clone https://github.com/ayushsinha123/chestxray-disease-detection.git
+git clone https://github.com/ayushsinha123/chestxray-project.git
 cd chestxray-disease-detection
 ```
 
