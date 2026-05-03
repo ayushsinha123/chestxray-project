@@ -53,23 +53,23 @@ chestxray-project/
 
 | Disease | Your AUC | CheXNet AUC |
 |---|---|---|
-| Atelectasis | - | 0.8094 |
-| Cardiomegaly | - | 0.9248 |
-| Effusion | - | 0.8638 |
-| Infiltration | - | 0.7345 |
-| Mass | - | 0.8676 |
-| Nodule | - | 0.7802 |
-| Pneumonia | - | 0.7680 |
-| Pneumothorax | - | 0.8887 |
-| Consolidation | - | 0.7901 |
-| Edema | - | 0.8878 |
-| Emphysema | - | 0.9371 |
-| Fibrosis | - | 0.8047 |
-| Pleural Thickening | - | 0.8062 |
-| Hernia | - | 0.9164 |
-| **Mean AUC** | **0.72+** | **0.8414** |
+| Atelectasis | 0.6798 | 0.8094 |
+| Cardiomegaly | 0.7308 | 0.9248 |
+| Effusion | 0.7812 | 0.8638 |
+| Infiltration | 0.6522 | 0.7345 |
+| Mass | 0.7061 | 0.8676 |
+| Nodule | 0.6054 | 0.7802 |
+| Pneumonia | 0.7180 | 0.7680 |
+| Pneumothorax | 0.8312 | 0.8887 |
+| Consolidation | 0.7602 | 0.7901 |
+| Edema | 0.8608 | 0.8878 |
+| Emphysema | 0.8319 | 0.9371 |
+| Fibrosis | 0.7176 | 0.8047 |
+| Pleural Thickening | 0.7292 | 0.8062 |
+| Hernia | 0.8448 | 0.9164 |
+| **Mean AUC** | **0.7464** | **0.8414** |
 
-> Results will be updated after training completes.  
+> Trained on 2x Tesla T4 GPU on Kaggle. 3 epochs frozen base + 15 epochs fine-tuning with cosine LR decay.
 > Baseline: CheXNet (DenseNet121) — Wang et al., Stanford 2017
 
 ---
