@@ -42,3 +42,4 @@ kaggle.json
 
 # Environment variables
 .env
+requirements_check.txt
