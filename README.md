@@ -155,8 +155,8 @@ Dataset: [NIH Chest X-rays on Kaggle](https://www.kaggle.com/datasets/nih-chest-
 
 ## 👤 Author
 
-**Ayush**  
-B.Tech CSE — Machine Learning Workshop 2  
+**Ayush Sinha**  
+B.Tech CSE AIML — Machine Learning Workshop 2  
 *Project built as part of deep learning coursework*
 
 ---
