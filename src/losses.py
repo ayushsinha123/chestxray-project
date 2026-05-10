@@ -1,19 +1,53 @@
 import tensorflow as tf
 
 
-class FocalLoss(tf.keras.losses.Loss):
-    def __init__(self, gamma=2.0, alpha=0.25, pos_weights=None):
-        super().__init__()
-        self.gamma = gamma
-        self.alpha = alpha
-        self.pos_weights = pos_weights
+class AsymmetricLoss(tf.keras.losses.Loss):
+
+    def __init__(
+        self,
+        gamma_neg=4,
+        gamma_pos=1,
+        clip=0.05,
+        label_smoothing=0.02,
+        name='AsymmetricLoss'
+    ):
+        super().__init__(name=name)
+        self.gamma_neg       = gamma_neg
+        self.gamma_pos       = gamma_pos
+        self.clip            = clip
+        self.label_smoothing = label_smoothing
 
     def call(self, y_true, y_pred):
-        y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
-        bce    = -y_true * tf.math.log(y_pred) \
-                 - (1 - y_true) * tf.math.log(1 - y_pred)
-        if self.pos_weights is not None:
-            bce = bce * (y_true * self.pos_weights + (1 - y_true))
-        p_t   = y_true * y_pred + (1 - y_true) * (1 - y_pred)
-        focal = self.alpha * tf.pow(1 - p_t, self.gamma) * bce
-        return tf.reduce_mean(focal)
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        y_true = y_true * (1.0 - self.label_smoothing) \
+               + 0.5    *         self.label_smoothing
+
+        y_pred_neg = tf.clip_by_value(y_pred - self.clip, 0.0, 1.0)
+        y_pred     = tf.clip_by_value(y_pred,             1e-7, 1.0 - 1e-7)
+        y_pred_neg = tf.clip_by_value(y_pred_neg,         1e-7, 1.0 - 1e-7)
+
+        log_pos = tf.math.log(y_pred)
+        log_neg = tf.math.log(1.0 - y_pred_neg)
+
+        p_t_pos = y_pred
+        p_t_neg = 1.0 - y_pred_neg
+        w_pos   = tf.pow(1.0 - p_t_pos, self.gamma_pos)
+        w_neg   = tf.pow(1.0 - p_t_neg, self.gamma_neg)
+
+        loss = -(
+            y_true         * w_pos * log_pos +
+            (1.0 - y_true) * w_neg * log_neg
+        )
+        return tf.reduce_mean(loss)
+
+    def get_config(self):
+        cfg = super().get_config()
+        cfg.update({
+            'gamma_neg':       self.gamma_neg,
+            'gamma_pos':       self.gamma_pos,
+            'clip':            self.clip,
+            'label_smoothing': self.label_smoothing,
+        })
+        return cfg

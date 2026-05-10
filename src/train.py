@@ -2,15 +2,17 @@ import tensorflow as tf
 import time
 import os
 
+from src.losses import AsymmetricLoss
 
-def get_train_val_step(model, focal_loss, optimizer,
-                        train_loss_metric, val_loss_metric, val_auc_metric):
+
+def get_train_val_step(model, asl_loss, optimizer,
+                       train_loss_metric, val_loss_metric, val_auc_metric):
 
     @tf.function
     def train_step(images, labels):
         with tf.GradientTape() as tape:
             preds = model(images, training=True)
-            loss  = focal_loss(labels, preds)
+            loss  = asl_loss(labels, preds)
         grads = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
         train_loss_metric.update_state(loss)
@@ -18,27 +20,37 @@ def get_train_val_step(model, focal_loss, optimizer,
     @tf.function
     def val_step(images, labels):
         preds = model(images, training=False)
-        loss  = focal_loss(labels, preds)
+        loss  = asl_loss(labels, preds)
         val_loss_metric.update_state(loss)
         val_auc_metric.update_state(labels, preds)
 
     return train_step, val_step
 
 
-def run_training(model, train_ds, val_ds, focal_loss, optimizer,
-                 train_loss_metric, val_loss_metric, val_auc_metric,
-                 epochs, save_dir, phase_name='phase', best_auc=0.0):
-
+def run_training(
+    model,
+    train_ds,
+    val_ds,
+    asl_loss,
+    optimizer,
+    train_loss_metric,
+    val_loss_metric,
+    val_auc_metric,
+    epochs,
+    save_dir,
+    phase_name='phaseC',
+    best_auc=0.0
+):
     os.makedirs(save_dir, exist_ok=True)
     history = {'train_loss': [], 'val_loss': [], 'val_auc': []}
 
     train_step, val_step = get_train_val_step(
-        model, focal_loss, optimizer,
+        model, asl_loss, optimizer,
         train_loss_metric, val_loss_metric, val_auc_metric
     )
 
     print(f"Starting {phase_name} ({epochs} epochs)...")
-    print("="*60)
+    print("=" * 60)
 
     for epoch in range(epochs):
         start = time.time()
@@ -70,14 +82,17 @@ def run_training(model, train_ds, val_ds, focal_loss, optimizer,
               f"Val AUC: {v_auc:.4f} | "
               f"Time: {elapsed:.0f}s")
 
-        model.save(f'{save_dir}/{phase_name}_epoch_{epoch+1}.keras')
+        # Save checkpoint every 5 epochs only
+        if (epoch + 1) % 5 == 0:
+            model.save(f'{save_dir}/{phase_name}_ep{epoch+1}.keras')
+            print(f"  Checkpoint saved: {phase_name}_ep{epoch+1}.keras")
 
         if v_auc > best_auc:
             best_auc = v_auc
-            model.save(f'{save_dir}/best_model_final.keras')
-            print(f"  ✓ Best saved (AUC: {best_auc:.4f})")
+            model.save(f'{save_dir}/best_model_phaseC.keras')
+            print(f"  ✓ Best model saved (AUC: {best_auc:.4f})")
 
-        print("-"*60)
+        print("-" * 60)
 
-    print(f"\n{phase_name} done! Best AUC: {best_auc:.4f}")
+    print(f"\n{phase_name} complete. Best AUC: {best_auc:.4f}")
     return history, best_auc

@@ -1,98 +1,191 @@
 import tensorflow as tf
 import numpy as np
 import cv2
-import matplotlib.pyplot as plt
-import os
 
-CLASSES = [
-    'Atelectasis', 'Cardiomegaly', 'Effusion', 'Infiltration',
-    'Mass', 'Nodule', 'Pneumonia', 'Pneumothorax', 'Consolidation',
-    'Edema', 'Emphysema', 'Fibrosis', 'Pleural_Thickening', 'Hernia'
-]
-
-IMG_SIZE = 224
+from src.config import IMG_SIZE
 
 
-def get_gradcam(model, image_tensor, class_idx, layer_name):
-    grad_model = tf.keras.Model(
-        inputs=model.inputs,
-        outputs=[model.get_layer(layer_name).output, model.output]
-    )
-    with tf.GradientTape() as tape:
-        conv_outputs, predictions = grad_model(image_tensor)
-        loss = predictions[:, class_idx]
+# ============================================================
+# GRAD-CAM MODEL BUILDER
+# ============================================================
 
-    grads    = tape.gradient(loss, conv_outputs)
-    pooled   = tf.reduce_mean(grads, axis=(0, 1, 2))
-    conv_out = conv_outputs[0]
-    heatmap  = conv_out @ pooled[..., tf.newaxis]
-    heatmap  = tf.squeeze(heatmap)
-    heatmap  = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
-    return heatmap.numpy()
+def build_grad_model(model):
+    """
+    Finds the DenseNet sub-model inside the wrapper model,
+    auto-detects the last Conv2D layer, and builds the
+    Grad-CAM sub-model that outputs (conv_features, densenet_output).
+
+    Returns: (grad_model, densenet_layer) or (None, None) on failure.
+    """
+
+    # Auto-detect DenseNet sub-model
+    densenet = None
+    for layer in model.layers:
+        if 'densenet' in layer.name.lower():
+            densenet = layer
+            print(f"[GradCAM] Found DenseNet sub-model: '{layer.name}'")
+            break
+
+    if densenet is None:
+        print("[GradCAM] WARNING: No DenseNet sub-model found. Grad-CAM disabled.")
+        return None, None
+
+    # Auto-detect last Conv2D inside DenseNet
+    last_conv = None
+    for layer in reversed(densenet.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            last_conv = layer.name
+            print(f"[GradCAM] Auto-detected last conv layer: '{last_conv}'")
+            break
+
+    if last_conv is None:
+        print("[GradCAM] WARNING: No Conv2D layer found in DenseNet. Grad-CAM disabled.")
+        return None, None
+
+    # Build grad model
+    try:
+        grad_model = tf.keras.Model(
+            inputs=densenet.input,
+            outputs=[
+                densenet.get_layer(last_conv).output,
+                densenet.output
+            ]
+        )
+        print(f"[GradCAM] Grad-CAM model built successfully.")
+        return grad_model, densenet
+    except Exception as e:
+        print(f"[GradCAM] WARNING: Could not build grad_model: {e}")
+        return None, None
 
 
-def overlay_gradcam(original_img, heatmap):
-    heatmap_resized = cv2.resize(heatmap, (IMG_SIZE, IMG_SIZE))
+# ============================================================
+# HEAD LAYER VALIDATOR
+# ============================================================
+
+def get_head_layers(model):
+    """
+    Checks that all expected head layer names exist in the model.
+    Returns a dict of {name: name} for found layers, and prints
+    warnings for any that are missing.
+    """
+    expected = ['gap', 'head_bn', 'drop1', 'fc1', 'fc_bn', 'drop2', 'predictions']
+    found = {}
+
+    for name in expected:
+        try:
+            model.get_layer(name)
+            found[name] = name
+            print(f"[GradCAM] Head layer found: '{name}'")
+        except Exception:
+            print(f"[GradCAM] WARNING: Head layer '{name}' not found in model.")
+
+    return found
+
+
+# ============================================================
+# GRAD-CAM COMPUTATION
+# ============================================================
+
+def get_gradcam(model, grad_model, head_layers, img_tensor, class_idx):
+    """
+    Computes the Grad-CAM heatmap for a given class index.
+
+    Args:
+        model:       Full wrapper model.
+        grad_model:  Sub-model outputting (conv_features, densenet_output).
+        head_layers: Dict of verified head layer names from get_head_layers().
+        img_tensor:  Preprocessed image tensor of shape (1, H, W, 3).
+        class_idx:   Index of the class to visualize.
+
+    Returns:
+        heatmap: np.ndarray of shape (IMG_SIZE, IMG_SIZE), float32, range [0, 1].
+                 Returns None if computation fails.
+    """
+    if grad_model is None:
+        print("[GradCAM] Skipped: grad_model not available.")
+        return None
+
+    required = ['gap', 'head_bn', 'drop1', 'fc1', 'fc_bn', 'drop2', 'predictions']
+    if not all(k in head_layers for k in required):
+        print("[GradCAM] Skipped: one or more head layers missing.")
+        return None
+
+    try:
+        with tf.GradientTape() as tape:
+            conv_out, base_out = grad_model(img_tensor, training=False)
+            tape.watch(conv_out)
+
+            x = model.get_layer(head_layers['gap'])(base_out)
+            x = model.get_layer(head_layers['head_bn'])(x, training=False)
+            x = model.get_layer(head_layers['drop1'])(x, training=False)
+            x = model.get_layer(head_layers['fc1'])(x)
+            x = model.get_layer(head_layers['fc_bn'])(x, training=False)
+            x = model.get_layer(head_layers['drop2'])(x, training=False)
+            preds = model.get_layer(head_layers['predictions'])(x)
+            loss  = preds[:, class_idx]
+
+        grads = tape.gradient(loss, conv_out)
+
+        if grads is None:
+            print("[GradCAM] Gradients are None — graph not connected. Skipping.")
+            return None
+
+        pooled = tf.reduce_mean(grads, axis=(0, 1, 2))
+
+        conv_np = conv_out[0].numpy()
+        pool_np = pooled.numpy()
+
+        heatmap = np.dot(conv_np, pool_np)
+        heatmap = np.maximum(heatmap, 0)
+
+        vmax = heatmap.max()
+        if vmax < 1e-8:
+            # Flat heatmap — no signal, return neutral
+            heatmap = np.ones_like(heatmap) * 0.5
+        else:
+            heatmap /= vmax
+
+        # Resize to IMG_SIZE x IMG_SIZE
+        heatmap = tf.image.resize(
+            heatmap[..., np.newaxis],
+            [IMG_SIZE, IMG_SIZE]
+        ).numpy().squeeze()
+
+        return heatmap.astype(np.float32)
+
+    except Exception as e:
+        print(f"[GradCAM] Error during computation: {e}")
+        return None
+
+
+# ============================================================
+# OVERLAY
+# ============================================================
+
+def overlay_gradcam(image, heatmap, alpha=0.4):
+    """
+    Blends the original image with the Grad-CAM heatmap.
+
+    Args:
+        image:   Original image as np.ndarray (H, W, 3), uint8.
+        heatmap: Normalized heatmap from get_gradcam(), float32 [0, 1].
+        alpha:   Heatmap blend weight (default 0.4).
+
+    Returns:
+        overlay: np.ndarray (IMG_SIZE, IMG_SIZE, 3), uint8.
+    """
     heatmap_colored = cv2.applyColorMap(
-        np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET
+        np.uint8(255 * heatmap), cv2.COLORMAP_JET
     )
     heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-    original_uint8  = np.uint8(255 * original_img)
-    overlay         = cv2.addWeighted(original_uint8, 0.6, heatmap_colored, 0.4, 0)
+
+    img_display = tf.image.resize(
+        image, [IMG_SIZE, IMG_SIZE]
+    ).numpy().astype(np.uint8)
+
+    overlay = cv2.addWeighted(
+        img_display,    1 - alpha,
+        heatmap_colored, alpha,
+        0
+    )
     return overlay
-
-
-def get_last_conv_layer(model):
-    for layer in model.layers[1].layers[::-1]:
-        if isinstance(layer, tf.keras.layers.Conv2D):
-            return layer.name
-    return None
-
-
-def generate_gradcam_grid(model, df, save_dir):
-    os.makedirs(save_dir, exist_ok=True)
-    last_conv = get_last_conv_layer(model)
-    print(f"Using conv layer: {last_conv}")
-
-    sample_classes = ['Cardiomegaly', 'Effusion', 'Pneumothorax', 'Atelectasis']
-    fig, axes = plt.subplots(4, 3, figsize=(12, 16))
-
-    for row, cls_name in enumerate(sample_classes):
-        idx      = df[df[cls_name] == 1].index[0]
-        img_path = df.loc[idx, 'image_path']
-        cls_idx  = CLASSES.index(cls_name)
-
-        img_raw = tf.io.read_file(img_path)
-        img_raw = tf.image.decode_png(img_raw, channels=3)
-        img_raw = tf.image.resize(img_raw, [IMG_SIZE, IMG_SIZE])
-        img_display   = img_raw.numpy() / 255.0
-        img_processed = tf.cast(img_raw, tf.float32)
-        img_processed = tf.keras.applications.efficientnet.preprocess_input(img_processed)
-        img_tensor    = tf.expand_dims(img_processed, 0)
-
-        pred = model(img_tensor, training=False).numpy()[0][cls_idx]
-
-        try:
-            heatmap = get_gradcam(model, img_tensor, cls_idx, layer_name=last_conv)
-            overlay = overlay_gradcam(img_display, heatmap)
-
-            axes[row, 0].imshow(img_display, cmap='gray')
-            axes[row, 0].set_title(f'Original\n{cls_name}', fontsize=10)
-            axes[row, 0].axis('off')
-
-            axes[row, 1].imshow(heatmap, cmap='jet')
-            axes[row, 1].set_title(f'Heatmap\nPred: {pred:.3f}', fontsize=10)
-            axes[row, 1].axis('off')
-
-            axes[row, 2].imshow(overlay)
-            axes[row, 2].set_title('Overlay', fontsize=10)
-            axes[row, 2].axis('off')
-
-        except Exception as e:
-            print(f"Grad-CAM failed for {cls_name}: {e}")
-
-    plt.suptitle('Grad-CAM Visualizations — Disease Localization', fontsize=14)
-    plt.tight_layout()
-    plt.savefig(f'{save_dir}/gradcam_results.png', dpi=150)
-    plt.show()
-    print(f"Grad-CAM saved to {save_dir}/gradcam_results.png")

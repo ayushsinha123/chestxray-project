@@ -1,45 +1,84 @@
-# Virtual environment
+# ============================================================
+# Virtual environments
+# ============================================================
+
 venv/
 env/
 
+# ============================================================
 # Python cache
+# ============================================================
+
 __pycache__/
 *.py[cod]
 *.pyo
 
-# Jupyter checkpoints
-.ipynb_checkpoints/
-*.ipynb
+# ============================================================
+# Jupyter
+# ============================================================
 
-# Model weights (too large for GitHub)
+.ipynb_checkpoints/
+
+# ============================================================
+# Model checkpoints / weights
+# ============================================================
+
 *.h5
 *.keras
 *.ckpt
 *.ckpt.index
 *.ckpt.data-00000-of-00001
 checkpoint
-outputs/weights/
 
-# Dataset images (42GB - never upload)
+# Ignore all weights first
+outputs/weights/*
+
+# But KEEP deployed final model
+!outputs/weights/
+!outputs/weights/best_model_phaseC.keras
+
+# ============================================================
+# Large datasets
+# ============================================================
+
 data/images/
 data/*.zip
 data/*.tar.gz
 
-# Grad-CAM outputs (optional - comment out if you want to keep)
+# ============================================================
+# Temporary outputs
+# ============================================================
+
+outputs/metrics/
+outputs/plots/
+
+# Optional Grad-CAM dump folder
 gradcam_results/
 
-# OS files
+# ============================================================
+# Operating system junk
+# ============================================================
+
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# VS Code settings
+# ============================================================
+# VS Code
+# ============================================================
+
 .vscode/
 
-# Kaggle API key (NEVER upload this)
+# ============================================================
+# Secrets / API keys
+# ============================================================
+
 kaggle.json
 .kaggle/
-
-# Environment variables
 .env
+
+# ============================================================
+# Misc
+# ============================================================
+
 requirements_check.txt
